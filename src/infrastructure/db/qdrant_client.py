@@ -16,6 +16,7 @@ Memory vectors (facts, episodes) stay in Supabase pgvector.
 """
 
 from loguru import logger
+import json
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -32,12 +33,49 @@ from infrastructure.config import (
     QDRANT_URL,
     QDRANT_COLLECTION_NAME,
     EMBEDDING_DIM,
+    KB_DIR,
 )
 # ---------------------------------------------------------------------------
 # Singleton client
 # ---------------------------------------------------------------------------
 
 _qdrant_client: Optional[QdrantClient] = None
+_catalog_url_by_chunk_id: Optional[Dict[int, str]] = None
+_catalog_url_by_product_name: Optional[Dict[str, str]] = None
+
+
+def _get_catalog_url_maps() -> tuple[Dict[int, str], Dict[str, str]]:
+    """
+    Best-effort fallback URL maps from Catalog.json.
+
+    Used to ensure retrieved CONTEXT always contains `Product URL:` even
+    when older Qdrant points were ingested before we embedded URLs into
+    `chunk_text`.
+    """
+    global _catalog_url_by_chunk_id, _catalog_url_by_product_name
+
+    if _catalog_url_by_chunk_id is not None and _catalog_url_by_product_name is not None:
+        return _catalog_url_by_chunk_id, _catalog_url_by_product_name
+
+    by_chunk_id: Dict[int, str] = {}
+    by_name: Dict[str, str] = {}
+
+    try:
+        with open(KB_DIR, "r", encoding="utf-8") as fh:
+            products = json.load(fh)
+        for chunk_id, p in enumerate(products, start=1):
+            url = str(p.get("product_url", "")).strip()
+            name = str(p.get("product_name", "")).strip().lower()
+            if url:
+                by_chunk_id[chunk_id] = url
+            if url and name:
+                by_name[name] = url
+    except Exception as exc:
+        logger.warning("Catalog URL fallback map unavailable: {}", exc)
+
+    _catalog_url_by_chunk_id = by_chunk_id
+    _catalog_url_by_product_name = by_name
+    return by_chunk_id, by_name
 
 
 def get_qdrant_client() -> QdrantClient:
@@ -244,17 +282,46 @@ def search_chunks(
         score_threshold=score_threshold,
     )
 
-    results = []
+    results: List[Dict[str, Any]] = []
+
     for hit in response.points:
         payload = hit.payload or {}
-        result = {
-            "chunk_text": payload.get("chunk_text", ""),
-            "chunk_id": payload.get("chunk_id"),
-            "product_name": payload.get("product_name", ""),
-            "product_url": payload.get("product_url", ""),
-            "score": hit.score,
-        }
-        results.append(result)
+
+        chunk_id_raw = payload.get("chunk_id")
+        try:
+            chunk_id = int(chunk_id_raw) if chunk_id_raw is not None else None
+        except (TypeError, ValueError):
+            chunk_id = None
+
+        product_name = str(payload.get("product_name", "")).strip()
+        product_url = str(payload.get("product_url", "") or payload.get("url", "")).strip()
+
+        # Fallback: resolve URL from Catalog.json if Qdrant payload is missing it.
+        if not product_url:
+            by_chunk_id, by_name = _get_catalog_url_maps()
+            if chunk_id is not None:
+                product_url = by_chunk_id.get(chunk_id, "")
+            if not product_url and product_name:
+                product_url = by_name.get(product_name.lower(), "")
+
+        chunk_text = payload.get("chunk_text", "") or ""
+
+        # Ensure CONTEXT includes a direct `Product URL:` line.
+        if product_url and "Product URL:" not in chunk_text:
+            chunk_text = chunk_text.rstrip()
+            if chunk_text:
+                chunk_text += "\n"
+            chunk_text += f"Product URL: {product_url}"
+
+        results.append(
+            {
+                "chunk_text": chunk_text,
+                "chunk_id": chunk_id,
+                "product_name": product_name,
+                "product_url": product_url,
+                "score": hit.score,
+            }
+        )
 
     return results
 

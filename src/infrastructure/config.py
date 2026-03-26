@@ -105,20 +105,19 @@ def get_embedding_model(provider: Optional[str] = None, tier: Optional[str] = No
 # ========================================
 # 3-Model Architecture
 # ========================================
-# Each role uses the best model for its task:
-#   Routing:    gpt-4o-mini     — reliable JSON output, fast
-#   Extraction: llama-3.1-8b    — ultra-fast via Groq, structured output
-#   Chat:       gemini-2.0-flash — high quality synthesis, generous context
+# Router/extractor can stay specialised, but the main chat model MUST match
+# the active provider; otherwise you'll get "invalid model ID" from the API.
 
-ROUTER_MODEL = "openai/gpt-4o-mini"
+ROUTER_MODEL = _get_nested(_MODELS, "openrouter", "chat", "general", default="openai/gpt-4o-mini")
 ROUTER_PROVIDER = "openrouter"
 
-EXTRACTOR_MODEL = "llama-3.1-8b-instant"
+EXTRACTOR_MODEL = _get_nested(_MODELS, "groq", "chat", "general", default="llama-3.1-8b-instant")
 EXTRACTOR_PROVIDER = "groq"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-CHAT_MODEL = "google/gemini-2.5-flash"
-CHAT_PROVIDER = "openrouter"
+# Main chat model/provider follow config/param.yaml provider settings.
+CHAT_PROVIDER = PROVIDER
+CHAT_MODEL = get_chat_model(provider=CHAT_PROVIDER, tier=MODEL_TIER)
 
 EMBEDDING_MODEL = get_embedding_model()
 

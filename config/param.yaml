@@ -7,7 +7,7 @@
 provider:
   # Which provider to use: "openrouter" (recommended) or "openai"
   # OpenRouter gives you access to ALL providers with one API key
-  default: openrouter
+  default: openai
   
   # Model tier to use: "general", "strong", or "reason"
   tier: general
