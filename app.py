@@ -20,11 +20,35 @@ import json
 import queue
 import threading
 
-# ── paths ──────────────────────────────────────────────────────────────────────
+# ── Paths & Vercel Compatibility ───────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC_ROOT     = os.path.join(PROJECT_ROOT, "src")
 sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, SRC_ROOT)
+
+IS_VERCEL = os.environ.get("VERCEL") == "1"
+
+# In Vercel, the filesystem is read-only except for /tmp
+if IS_VERCEL:
+    repo_profile = os.path.join(PROJECT_ROOT, "data", "recipient_profiles.json")
+    data_dir = "/tmp/data"
+    os.makedirs(data_dir, exist_ok=True)
+    profile_path = os.path.join(data_dir, "recipient_profiles.json")
+    
+    # Copy base profiles from repo to /tmp if not already present
+    if not os.path.exists(profile_path) and os.path.exists(repo_profile):
+        import shutil
+        try:
+            shutil.copy(repo_profile, profile_path)
+        except Exception:
+            pass
+    
+    # Initialise empty file if both repo and /tmp are missing
+    if not os.path.exists(profile_path):
+        with open(profile_path, "w") as f:
+            f.write("[]")
+else:
+    profile_path = os.path.join(PROJECT_ROOT, "data", "recipient_profiles.json")
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
@@ -56,7 +80,6 @@ llm_extractor = get_extractor_llm(temperature=0)
 
 embedder      = get_default_embeddings()
 
-profile_path  = os.path.join(PROJECT_ROOT, "data", "recipient_profiles.json")
 memory        = MemoryDistiller(llm=llm_extractor, profile_path=profile_path)
 logistic_tool = LogisticAlert(llm=llm_extractor)
 rag_tool      = RAGTool(embedder=embedder, llm=llm_chat)
