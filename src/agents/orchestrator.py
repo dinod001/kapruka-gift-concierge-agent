@@ -14,7 +14,7 @@ Flow:
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -73,29 +73,56 @@ class AgentOrchestrator:
 
     # ── public entry point ────────────────────────────────────────────────────
 
-    def chat(self, user_message: str) -> AgentResponse:
+    def chat(
+        self,
+        user_message: str,
+        on_step: Optional[Callable[[str, dict], None]] = None,
+    ) -> AgentResponse:
         """
         Process a single user message through the full agent pipeline.
 
         Args:
             user_message: The raw input string from the user.
+            on_step     : Optional callback fired at each pipeline stage.
+                          Signature: on_step(step_name: str, payload: dict)
+                          Step names: 'memory', 'route', 'draft',
+                                      'reflecting', 'reflect_result', 'revised'
 
         Returns:
             An AgentResponse with the final answer and routing metadata.
         """
+        def _fire(name: str, payload: dict) -> None:
+            """Safely invoke on_step without breaking the pipeline."""
+            if on_step:
+                try:
+                    on_step(name, payload)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[Orchestrator] on_step callback error: {}", exc)
+
         t0 = time.time()
 
-        # Step 1: Recall memory context (ST history + LT profiles)
+        # ── Step 1: Recall memory context (ST history + LT profiles) ──────────
         memory_context = self._recall_memory(user_message)
         profiles       = self.memory.long_term.get_profiles()
+        _fire("memory", {
+            "found":    len(profiles) > 0,
+            "count":    len(profiles),
+            "profiles": profiles,
+        })
 
-        # Step 2: Route the query
+        # ── Step 2: Route the query ───────────────────────────────────────────
         decision = self.router.route(user_message, memory_context)
+        _fire("route", {
+            "route":      decision.route,
+            "confidence": decision.confidence,
+            "reason":     decision.reasoning,
+        })
 
-        # Step 3: Dispatch to the right tool
+        # ── Step 3: Dispatch to the right tool ───────────────────────────────
         tool_output = self._dispatch(decision)
 
-        # Step 4: Synthesise initial draft
+        # ── Step 4: Synthesise initial draft ─────────────────────────────────
+        _fire("draft", {"route": decision.route})
         draft = self._synthesise(
             user_message=user_message,
             memory_context=memory_context,
@@ -103,23 +130,27 @@ class AgentOrchestrator:
             tool_output=tool_output,
         )
 
-        # Step 5 & 6: Reflect → Revise (only if profiles exist to check against)
+        # ── Step 5 & 6: Reflect → Revise ─────────────────────────────────────
         violated = False
         final_answer = draft
 
         if profiles:
+            _fire("reflecting", {"profile_count": len(profiles)})
             violation, reason = self._reflect(draft=draft, profiles=profiles)
+            _fire("reflect_result", {"violated": violation, "reason": reason})
+
             if violation:
                 logger.warning("[Orchestrator] Violation found: '{}'. Revising draft.", reason)
                 final_answer = self._revise(draft=draft, reason=reason, profiles=profiles)
                 violated = True
+                _fire("revised", {"reason": reason})
                 logger.success("[Orchestrator] Draft revised after reflection.")
             else:
                 logger.info("[Orchestrator] Reflection: draft is safe — no revision needed.")
         else:
             logger.debug("[Orchestrator] No profiles in LT memory — skipping reflection.")
 
-        # Step 7: Save turn to memory
+        # ── Step 7: Save turn to memory ───────────────────────────────────────
         self.memory.saving_memory(question=user_message, answer=final_answer)
 
         latency_ms = int((time.time() - t0) * 1000)

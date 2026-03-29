@@ -30,7 +30,7 @@ class MemoryDistiller:
         
         Distillation is triggered if the question contains memory-intent keywords.
         """
-        keywords = ["remember", "from now on", "remind me", "always", "never"]
+        keywords = ["remember", "from now on", "remind me", "always", "never", "allergic", "likes", "dislikes", "loves", "hates"]
         content_lower = question.lower()
         
         if any(kw in content_lower for kw in keywords):

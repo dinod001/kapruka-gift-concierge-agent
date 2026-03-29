@@ -163,7 +163,24 @@ class LongTermMemory:
             template=EXTRACTION_PROMPT,
         )
         chain = prompt | self.llm | JsonOutputParser()
-        profiles: list[dict[str, Any]] = chain.invoke({"conversation": conversation_text})
+        new_profiles: list[dict[str, Any]] = chain.invoke({"conversation": conversation_text})
 
-        self.save_profiles(profiles)
-        return profiles
+        if not new_profiles:
+            return []
+
+        # Merge with existing profiles
+        existing_profiles = self.get_profiles()
+        
+        for new_entry in new_profiles:
+            for recipient, traits in new_entry.items():
+                found = False
+                for existing_entry in existing_profiles:
+                    if recipient in existing_entry:
+                        existing_entry[recipient].update(traits)
+                        found = True
+                        break
+                if not found:
+                    existing_profiles.append({recipient: traits})
+
+        self.save_profiles(existing_profiles)
+        return existing_profiles
