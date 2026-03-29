@@ -1,0 +1,316 @@
+"""
+Agent Orchestrator — main execution loop.
+
+Flow:
+  1. Recall memory context (ST chat history + LT profiles).
+  2. Route the user query (LLM → RouteDecision).
+  3. Dispatch to the selected tool (logistic | rag | direct).
+  4. Synthesise initial draft answer using the chat LLM.
+  5. Reflect  — check draft against recipient profiles for violations.
+  6. Revise   — if violation found, fix the draft (else return as-is).
+  7. Save the final turn to memory (ST always, LT if intent triggered).
+"""
+
+import json
+import time
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from loguru import logger
+
+from agents.router import QueryRouter, RouteDecision
+from agents.prompts.agent_prompts import build_reflect_prompt, build_revise_prompt
+from memory.memory_ops import MemoryDistiller
+
+
+@dataclass
+class AgentResponse:
+    """
+    Complete agent response with metadata.
+
+    Attributes:
+        answer     : The final (post-reflection) text response shown to the user.
+        route      : Which route was selected (logistic | rag | direct).
+        tool_output: Raw tool output before synthesis (for debugging).
+        violated   : True if a reflection violation was found and revised.
+        latency_ms : End-to-end processing time in milliseconds.
+    """
+
+    answer: str
+    route: str = "direct"
+    tool_output: str = ""
+    violated: bool = False
+    latency_ms: int = 0
+
+
+class AgentOrchestrator:
+    """
+    Main agent loop that ties routing, tools, memory, and synthesis together.
+
+    Pipeline: Recall → Route → Dispatch → Draft → Reflect → Revise → Save
+
+    Dependencies (injected via __init__):
+        llm_chat      — Chat LLM for synthesis/reflect/revise (e.g. Gemini 2.0 Flash)
+        llm_router    — Router LLM for intent classification (e.g. GPT-4o-mini)
+        memory        — MemoryDistiller (ST + LT memory coordinator)
+        logistic_tool — LogisticAlert agent (optional)
+        rag_tool      — RAGTool (optional)
+    """
+
+    def __init__(
+        self,
+        llm_chat: Any,
+        llm_router: Any,
+        memory: MemoryDistiller,
+        logistic_tool: Optional[Any] = None,
+        rag_tool: Optional[Any] = None,
+    ) -> None:
+        self.llm_chat      = llm_chat
+        self.memory        = memory
+        self.logistic_tool = logistic_tool
+        self.rag_tool      = rag_tool
+        self.router        = QueryRouter(llm_router)
+
+    # ── public entry point ────────────────────────────────────────────────────
+
+    def chat(self, user_message: str) -> AgentResponse:
+        """
+        Process a single user message through the full agent pipeline.
+
+        Args:
+            user_message: The raw input string from the user.
+
+        Returns:
+            An AgentResponse with the final answer and routing metadata.
+        """
+        t0 = time.time()
+
+        # Step 1: Recall memory context (ST history + LT profiles)
+        memory_context = self._recall_memory(user_message)
+        profiles       = self.memory.long_term.get_profiles()
+
+        # Step 2: Route the query
+        decision = self.router.route(user_message, memory_context)
+
+        # Step 3: Dispatch to the right tool
+        tool_output = self._dispatch(decision)
+
+        # Step 4: Synthesise initial draft
+        draft = self._synthesise(
+            user_message=user_message,
+            memory_context=memory_context,
+            route=decision.route,
+            tool_output=tool_output,
+        )
+
+        # Step 5 & 6: Reflect → Revise (only if profiles exist to check against)
+        violated = False
+        final_answer = draft
+
+        if profiles:
+            violation, reason = self._reflect(draft=draft, profiles=profiles)
+            if violation:
+                logger.warning("[Orchestrator] Violation found: '{}'. Revising draft.", reason)
+                final_answer = self._revise(draft=draft, reason=reason, profiles=profiles)
+                violated = True
+                logger.success("[Orchestrator] Draft revised after reflection.")
+            else:
+                logger.info("[Orchestrator] Reflection: draft is safe — no revision needed.")
+        else:
+            logger.debug("[Orchestrator] No profiles in LT memory — skipping reflection.")
+
+        # Step 7: Save turn to memory
+        self.memory.saving_memory(question=user_message, answer=final_answer)
+
+        latency_ms = int((time.time() - t0) * 1000)
+        logger.info(
+            "[Orchestrator] Done in {}ms | route='{}' | violated={}",
+            latency_ms, decision.route, violated,
+        )
+
+        return AgentResponse(
+            answer=final_answer,
+            route=decision.route,
+            tool_output=tool_output,
+            violated=violated,
+            latency_ms=latency_ms,
+        )
+
+    # ── internal steps ────────────────────────────────────────────────────────
+
+    def _recall_memory(self, user_message: str) -> str:
+        """
+        Fetch ST chat history + LT profiles and format as a context string.
+
+        Returns an empty string if memory is unavailable (non-fatal).
+        """
+        try:
+            ctx = self.memory.recaller(user_message)
+            lines = []
+
+            if ctx.get("all_profiles"):
+                lines.append("RECIPIENT PROFILES:")
+                for entry in ctx["all_profiles"]:
+                    lines.append(f"  {entry}")
+
+            if ctx.get("chat_history"):
+                lines.append("\nRECENT CONVERSATION:")
+                for turn in ctx["chat_history"]:
+                    lines.append(f"  {turn['role']}: {turn['content']}")
+
+            return "\n".join(lines)
+        except Exception as exc:
+            logger.warning("[Orchestrator] Memory recall failed: {}", exc)
+            return ""
+
+    def _dispatch(self, decision: RouteDecision) -> str:
+        """
+        Dispatch the query to the appropriate specialist tool.
+
+        Returns the tool's raw output string, or "" for the direct route.
+        """
+        route  = decision.route
+        params = decision.params or {}
+
+        if route == "logistic":
+            if not self.logistic_tool:
+                logger.warning("[Orchestrator] Logistic tool not attached.")
+                return "Delivery information is currently unavailable."
+            question = params.get("district") or params.get("query", "")
+            logger.info("[Orchestrator] → LogisticAlert: '{}'", question)
+            return self.logistic_tool.generate_answer(question)
+
+        if route == "rag":
+            if not self.rag_tool:
+                logger.warning("[Orchestrator] RAG tool not attached.")
+                return "Product catalog is currently unavailable."
+            query = params.get("query", "")
+            if not query:
+                return "No search query could be extracted."
+            logger.info("[Orchestrator] → RAGTool: '{}'", query[:80])
+            return self.rag_tool.search(query)
+
+        # direct — no tool needed; synthesiser answers from memory alone
+        return ""
+
+    def _synthesise(
+        self,
+        user_message: str,
+        memory_context: str,
+        route: str,
+        tool_output: str,
+    ) -> str:
+        """
+        Call the chat LLM to produce the initial draft answer (Step 4).
+
+        Falls back to raw tool_output if the LLM call fails.
+        """
+        system_msg = (
+            "You are the Kapruka Gift-Concierge. "
+            "Answer the user's question using the TOOL OUTPUT and MEMORY CONTEXT provided. "
+            "Be helpful, concise, and natural. "
+            "If tool output is empty, answer from memory or general knowledge."
+        )
+
+        context_block = f"\nMEMORY CONTEXT:\n{memory_context}\n" if memory_context else ""
+        tool_block    = f"\nTOOL OUTPUT ({route}):\n{tool_output}\n" if tool_output else ""
+        user_prompt   = f"{context_block}{tool_block}\nUSER: {user_message}"
+
+        try:
+            response = self.llm_chat.invoke(
+                [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user",   "content": user_prompt},
+                ]
+            )
+            content = response.content if hasattr(response, "content") else str(response)
+
+            # Log token usage if available
+            if hasattr(response, "response_metadata"):
+                meta = response.response_metadata or {}
+                token_usage = meta.get("token_usage") or meta.get("usage", {})
+                if token_usage:
+                    logger.debug(
+                        "[Orchestrator] Draft tokens — in:{} out:{} total:{}",
+                        token_usage.get("prompt_tokens", 0),
+                        token_usage.get("completion_tokens", 0),
+                        token_usage.get("total_tokens", 0),
+                    )
+            return content.strip()
+        except Exception as exc:
+            logger.error("[Orchestrator] Synthesiser LLM failed: {}", exc)
+            return tool_output if tool_output else "I'm sorry, I encountered an error processing your request."
+
+    def _reflect(self, draft: str, profiles: list) -> tuple[bool, str]:
+        """
+        Step 5 — REFLECT: Check the draft against recipient profiles.
+
+        Returns:
+            (violation: bool, reason: str)
+            violation=True means the draft must be revised.
+        """
+        logger.info("[Orchestrator] Reflecting draft against {} profile(s)...", len(profiles))
+
+        system_prompt, user_prompt = build_reflect_prompt(draft=draft, profiles=profiles)
+
+        try:
+            response = self.llm_chat.invoke(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ]
+            )
+            raw = response.content if hasattr(response, "content") else str(response)
+
+            # Strip markdown fences if present
+            text = raw.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1]
+            if text.endswith("```"):
+                text = text.rsplit("```", 1)[0]
+
+            data     = json.loads(text.strip())
+            violated = bool(data.get("violation", False))
+            reason   = data.get("reason", "")
+            logger.info("[Orchestrator] Reflect result — violation={} reason='{}'", violated, reason)
+            return violated, reason
+
+        except Exception as exc:
+            # If reflection fails, be safe and pass (no revision)
+            logger.warning("[Orchestrator] Reflect step failed (skipping): {}", exc)
+            return False, ""
+
+    def _revise(self, draft: str, reason: str, profiles: list) -> str:
+        """
+        Step 6 — REVISE: Rewrite the draft to fix the detected violation.
+
+        Returns the revised answer string.
+        """
+        logger.info("[Orchestrator] Revising draft to fix: '{}'", reason)
+
+        system_prompt, user_prompt = build_revise_prompt(
+            draft=draft, reason=reason, profiles=profiles
+        )
+
+        try:
+            response = self.llm_chat.invoke(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ]
+            )
+            content = response.content if hasattr(response, "content") else str(response)
+            return content.strip()
+        except Exception as exc:
+            logger.error("[Orchestrator] Revise step failed: {}", exc)
+            return draft  # fall back to original draft
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _model_name(self) -> str:
+        """Return the chat LLM model name for logging."""
+        if hasattr(self.llm_chat, "model_name"):
+            return self.llm_chat.model_name
+        if hasattr(self.llm_chat, "model"):
+            return self.llm_chat.model
+        return "unknown"

@@ -21,7 +21,7 @@ from loguru import logger
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 
-from src.memory.memory_template import EXTRACTION_PROMPT
+from memory.memory_template import EXTRACTION_PROMPT
 
 
 class LongTermMemory:

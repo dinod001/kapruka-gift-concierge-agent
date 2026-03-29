@@ -108,8 +108,11 @@ def get_embedding_model(provider: Optional[str] = None, tier: Optional[str] = No
 # Router/extractor can stay specialised, but the main chat model MUST match
 # the active provider; otherwise you'll get "invalid model ID" from the API.
 
-ROUTER_MODEL = _get_nested(_MODELS, "openrouter", "chat", "general", default="openai/gpt-4o-mini")
-ROUTER_PROVIDER = "openrouter"
+# ROUTER_MODEL = _get_nested(_MODELS, "openrouter", "chat", "general", default="openai/gpt-4o-mini")
+# ROUTER_PROVIDER = "openrouter"
+
+ROUTER_MODEL = _get_nested(_MODELS, "groq", "chat", "general", default="llama-3.1-8b-instant")
+ROUTER_PROVIDER = "groq"
 
 EXTRACTOR_MODEL = _get_nested(_MODELS, "groq", "chat", "general", default="llama-3.1-8b-instant")
 EXTRACTOR_PROVIDER = "groq"
