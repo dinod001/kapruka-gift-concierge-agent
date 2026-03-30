@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>Kapruka Gift Concierge</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
@@ -20,31 +20,54 @@
       --text:      #E8EEF8;
       --muted:     #5C6A8A;
       --radius:    18px;
+      /* Fluid gutters: scales with any phone width (320px → phablet) */
+      --pad-x:     clamp(10px, 3.8vw, 22px);
+      --pad-y:     clamp(10px, 2.2vw, 18px);
+      /* vw-based only — % max-width on bubbles broke inside shrink-wrapped flex (letters stacked) */
+      --bubble-cap: min(88vw, 22rem);
+    }
+
+    html {
+      font-size: 16px; /* Stable rem baseline; avoids shrunk text on mobile */
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
 
     html, body {
       height: 100%;
+      min-height: 100dvh;
       font-family: 'Inter', sans-serif;
       background: var(--bg);
       color: var(--text);
-      overflow: hidden;
+      overflow-x: hidden;
     }
 
     /* ── Main layout ── */
     .page {
       display: flex;
       flex-direction: column;
+      width: min(100%, 760px);
+      min-width: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
       height: 100vh;
-      max-width: 760px;
+      height: 100dvh;
+      max-height: 100vh;
+      max-height: 100dvh;
       margin: 0 auto;
+      position: relative;
+      padding-top: env(safe-area-inset-top, 0);
+      padding-left: max(env(safe-area-inset-left, 0px), 0px);
+      padding-right: max(env(safe-area-inset-right, 0px), 0px);
+      padding-bottom: 0;
     }
 
     /* ── Header ── */
     header {
       display: flex;
       align-items: center;
-      gap: 14px;
-      padding: 18px 24px;
+      gap: clamp(8px, 2vw, 14px);
+      padding: var(--pad-y) var(--pad-x);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
@@ -57,8 +80,19 @@
       box-shadow: 0 0 18px var(--teal-glow);
       flex-shrink: 0;
     }
-    .header-info h1  { font-size: 16px; font-weight: 700; }
-    .header-info p   { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .header-info h1  {
+      font-size: clamp(15px, 4vw, 17px);
+      font-weight: 700;
+      line-height: 1.2;
+      overflow-wrap: break-word;
+      hyphens: auto;
+    }
+    .header-info p   {
+      font-size: clamp(11px, 2.8vw, 12px);
+      color: var(--muted);
+      margin-top: 2px;
+      line-height: 1.3;
+    }
     .status-pill {
       margin-left: auto;
       display: flex; align-items: center; gap: 6px;
@@ -73,41 +107,107 @@
 
     /* ── Messages ── */
     .messages {
-      flex: 1;
+      flex: 1 1 auto;
+      min-height: 0;
       overflow-y: auto;
-      padding: 28px 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 18px;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-y: contain;
+      padding: 0;
       scroll-behavior: smooth;
     }
     .messages::-webkit-scrollbar { width: 4px; }
     .messages::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 4px; }
 
+    .messages-inner {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(12px, 3vw, 18px);
+      padding: clamp(16px, 4vw, 28px) var(--pad-x);
+      box-sizing: border-box;
+    }
+    /* Landing: center welcome. After first message: pin thread toward input (no huge dead gap). */
+    .messages-inner.is-landing {
+      justify-content: center;
+    }
+    .messages-inner.has-chat {
+      justify-content: flex-end;
+    }
+
     /* ── Welcome ── */
     .welcome {
       display: flex; flex-direction: column; align-items: center;
-      margin: auto; text-align: center; max-width: 380px;
+      margin: auto; text-align: center;
+      width: 100%;
+      max-width: min(100%, 26rem);
+      padding: 0 clamp(4px, 1.5vw, 10px);
+      box-sizing: border-box;
     }
-    .welcome-emoji { font-size: 52px; margin-bottom: 14px; filter: drop-shadow(0 0 20px var(--teal)); }
-    .welcome h2    { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-    .welcome p     { font-size: 13px; color: var(--muted); line-height: 1.7; }
+    .welcome-emoji {
+      font-size: clamp(44px, 12vw, 56px);
+      margin-bottom: clamp(10px, 3vw, 14px);
+      filter: drop-shadow(0 0 20px var(--teal));
+      line-height: 1;
+    }
+    .welcome h2 {
+      font-size: clamp(1.15rem, 4.8vw, 1.45rem);
+      font-weight: 700;
+      margin-bottom: 8px;
+      line-height: 1.25;
+      max-width: 22ch;
+      text-wrap: balance;
+    }
+    .welcome p {
+      font-size: clamp(0.8rem, 3.4vw, 0.9rem);
+      color: var(--muted);
+      line-height: 1.65;
+      max-width: 36em;
+    }
 
-    .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; }
+    .chips {
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 10px; margin-top: 20px;
+      width: 100%;
+    }
     .chip  {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 7px 15px;
-      font-size: 12px; color: var(--muted);
+      border-radius: 999px;
+      padding: 12px 18px;
+      min-height: 44px;
+      font-size: clamp(13px, 3.4vw, 15px);
+      color: var(--muted);
       cursor: pointer; transition: all .2s;
+      display: inline-flex; align-items: center; justify-content: center;
+      text-align: center;
+      line-height: 1.35;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     .chip:hover { border-color: var(--teal); color: var(--teal); background: var(--teal-dim); }
+    .chip:active { transform: scale(0.98); }
 
     /* ── Message rows ── */
-    .msg-row { display: flex; gap: 10px; align-items: flex-end; animation: slideUp .25s ease; }
+    .msg-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      width: 100%;
+      min-width: 0;
+      animation: slideUp .25s ease;
+    }
     .msg-row.user { flex-direction: row-reverse; }
     @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+    .msg-body {
+      flex: 1 1 0;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+    .msg-row.user .msg-body { align-items: flex-end; }
 
     .avatar {
       width: 32px; height: 32px; border-radius: 9px;
@@ -118,11 +218,16 @@
     .avatar.user { background: var(--surface2); border: 1px solid var(--border); }
 
     .bubble {
-      max-width: 75%;
-      padding: 12px 16px;
-      font-size: 14px; line-height: 1.65;
+      max-width: min(100%, var(--bubble-cap), 75vw);
+      width: fit-content;
+      box-sizing: border-box;
+      padding: clamp(11px, 2.8vw, 14px) clamp(14px, 3.5vw, 18px);
+      font-size: clamp(15px, 3.9vw, 17px);
+      line-height: 1.55;
       border-radius: var(--radius);
       white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: normal;
     }
     .bubble.bot  {
       background: var(--surface);
@@ -153,9 +258,11 @@
 
     /* ── Input ── */
     .input-wrap {
-      padding: 16px 24px 22px;
+      padding: var(--pad-y) var(--pad-x);
+      padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px) + 12px);
       border-top: 1px solid var(--border);
       flex-shrink: 0;
+      background: var(--bg);
     }
     .input-box {
       display: flex; gap: 10px; align-items: flex-end;
@@ -169,15 +276,32 @@
       border-color: var(--teal);
       box-shadow: 0 0 0 3px var(--teal-dim);
     }
+    /* iOS Safari zooms the page when focused inputs are < 16px — keep >= 16 always */
     #inp {
-      flex: 1; background: transparent; border: none; outline: none;
-      color: var(--text); font-family: inherit; font-size: 14px;
-      line-height: 1.5; resize: none; max-height: 120px;
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 16px;
+      line-height: 1.45;
+      resize: none;
+      max-height: 120px;
+      min-height: 44px;
+      -webkit-appearance: none;
+      appearance: none;
+      touch-action: manipulation;
+      border-radius: 0;
     }
-    #inp::placeholder { color: var(--muted); }
+    #inp::placeholder {
+      color: var(--muted);
+      font-size: 16px;
+      opacity: 1;
+    }
 
     #send {
-      width: 38px; height: 38px; border-radius: 10px;
+      width: 44px; height: 44px; min-width: 44px; min-height: 44px; border-radius: 12px;
       background: var(--teal); border: none;
       cursor: pointer; display: flex; align-items: center; justify-content: center;
       font-size: 16px; flex-shrink: 0; transition: all .2s;
@@ -185,7 +309,7 @@
     #send:hover    { background: #00e0ba; box-shadow: 0 0 12px var(--teal-glow); }
     #send:disabled { background: var(--surface2); cursor: not-allowed; }
 
-    .input-hint { text-align: center; font-size: 10px; color: var(--muted); margin-top: 6px; }
+    .input-hint { text-align: center; font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
 
     /* ── Dev link ── */
     .dev-link {
@@ -194,8 +318,155 @@
       text-decoration: none;
       opacity: .4;
       transition: opacity .2s;
+      z-index: 100;
     }
     .dev-link:hover { opacity: 1; color: var(--teal); }
+
+    /* ── Phones & small tablets (any typical handset width) ── */
+    @media (max-width: 896px) {
+      html {
+        font-size: 17px; /* Larger tap/read targets; inputs below stay ≥16px */
+      }
+      .page {
+        max-width: 100%;
+        width: 100%;
+      }
+      header {
+        padding: 12px 16px;
+        gap: 10px;
+        flex-wrap: nowrap;
+      }
+      .logo {
+        width: 48px; height: 48px;
+        min-width: 48px;
+        font-size: 22px;
+        border-radius: 12px;
+      }
+      .header-info { min-width: 0; flex: 1; }
+      .header-info h1 {
+        font-size: clamp(17px, 4.2vw, 20px);
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .header-info p {
+        font-size: clamp(12px, 3.2vw, 14px);
+        margin-top: 2px;
+        line-height: 1.35;
+      }
+      .status-pill {
+        flex-shrink: 0;
+        padding: 8px 12px;
+        min-height: 36px;
+        font-size: 12px;
+        gap: 6px;
+      }
+      .pulse { width: 8px; height: 8px; }
+
+      .messages-inner {
+        padding: 18px clamp(12px, 4vw, 20px);
+      }
+      :root {
+        --bubble-cap: min(90vw, 24rem);
+      }
+      .welcome {
+        max-width: 100%;
+        padding: 0 clamp(4px, 2vw, 12px);
+      }
+      .welcome-emoji {
+        font-size: clamp(56px, 14vw, 80px);
+        margin-bottom: 16px;
+      }
+      .welcome h2 {
+        font-size: clamp(22px, 5.5vw, 28px);
+        line-height: 1.25;
+        margin-bottom: 10px;
+      }
+      .welcome p {
+        font-size: clamp(15px, 4vw, 17px);
+        line-height: 1.65;
+        max-width: 36em;
+      }
+      .chips {
+        gap: 10px;
+        margin-top: 24px;
+        justify-content: stretch;
+      }
+      .chip {
+        flex: 1 1 calc(50% - 6px);
+        min-width: calc(50% - 6px);
+        max-width: 100%;
+        padding: 14px 16px;
+        min-height: 48px;
+        font-size: clamp(14px, 3.8vw, 16px);
+        font-weight: 500;
+      }
+      .bubble {
+        max-width: min(100%, var(--bubble-cap), 92vw);
+        font-size: clamp(16px, 4.2vw, 18px);
+        line-height: 1.55;
+        padding: clamp(13px, 3.2vw, 16px) clamp(15px, 4vw, 18px);
+      }
+      .avatar { width: 36px; height: 36px; font-size: 16px; }
+      .msg-time { font-size: 11px; }
+
+      .input-wrap {
+        padding: 14px clamp(12px, 4vw, 18px) max(16px, env(safe-area-inset-bottom, 0px) + 10px);
+      }
+      .input-box {
+        border-radius: 16px;
+        padding: 12px 14px;
+        align-items: center;
+      }
+      #inp {
+        font-size: max(16px, 1rem); /* ≥16px always (iOS focus zoom) */
+        min-height: 48px;
+      }
+      #send {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        min-height: 48px;
+        font-size: 18px;
+        border-radius: 14px;
+      }
+      .input-hint {
+        font-size: clamp(12px, 3.2vw, 14px);
+        padding: 0 4px;
+      }
+
+      .dev-link { display: none; }
+      #dev-trigger { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+    }
+
+    /* ── Narrow phones: stack chips full-width ── */
+    @media (max-width: 400px) {
+      :root {
+        --pad-x: clamp(10px, 4.2vw, 14px);
+      }
+      .chip {
+        flex: 1 1 100%;
+        min-width: 100%;
+      }
+      .status-pill { font-size: 10px; padding: 6px 8px; }
+      .header-info h1 { font-size: clamp(14px, 4.5vw, 16px); }
+    }
+
+    /* ── Very small widths (e.g. Galaxy Fold cover, old SE) ── */
+    @media (max-width: 340px) {
+      .logo { width: 40px; height: 40px; min-width: 40px; font-size: 18px; }
+    }
+
+    /* ── Landscape / short screens: fit content without huge empty bands ── */
+    @media (max-height: 520px) and (orientation: landscape) {
+      .welcome-emoji { font-size: clamp(32px, 8vh, 44px); margin-bottom: 6px; }
+      .welcome h2 { font-size: clamp(1rem, 3.5vh, 1.2rem); margin-bottom: 4px; }
+      .welcome p { font-size: clamp(0.75rem, 2.8vh, 0.85rem); }
+      .chips { margin-top: 12px; gap: 8px; }
+      .chip { min-height: 42px; padding: 10px 14px; }
+      header { padding: 8px var(--pad-x); }
+      .messages-inner { padding: 10px var(--pad-x); gap: 10px; }
+      .input-wrap { padding-top: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom, 0px) + 6px); }
+    }
   </style>
 </head>
 <body>
@@ -203,7 +474,7 @@
 
   <!-- Header -->
   <header>
-    <div class="logo">🎁</div>
+    <div class="logo" id="dev-trigger" onclick="devClick()">🎁</div>
     <div class="header-info">
       <h1>Kapruka Gift Concierge</h1>
       <p>Your AI-powered gifting assistant</p>
@@ -216,15 +487,17 @@
 
   <!-- Messages -->
   <div class="messages" id="msgs">
-    <div class="welcome" id="welcome">
-      <div class="welcome-emoji">🎁</div>
-      <h2>How can I help you today?</h2>
-      <p>Ask me anything about gifts, deliveries across Sri Lanka, or tell me about your recipient's preferences.</p>
-      <div class="chips">
-        <div class="chip" onclick="send(this.textContent)">Deliver to Kandy?</div>
-        <div class="chip" onclick="send(this.textContent)">Gift ideas for mother</div>
-        <div class="chip" onclick="send(this.textContent)">My wife is allergic to nuts</div>
-        <div class="chip" onclick="send(this.textContent)">Deliver to Jaffna?</div>
+    <div class="messages-inner is-landing" id="msgsInner">
+      <div class="welcome" id="welcome">
+        <div class="welcome-emoji">🎁</div>
+        <h2>How can I help you today?</h2>
+        <p>Ask me anything about gifts, deliveries across Sri Lanka, or tell me about your recipient's preferences.</p>
+        <div class="chips">
+          <div class="chip" onclick="send(this.textContent)">Deliver to Kandy?</div>
+          <div class="chip" onclick="send(this.textContent)">Gift ideas for mother</div>
+          <div class="chip" onclick="send(this.textContent)">My wife is allergic to nuts</div>
+          <div class="chip" onclick="send(this.textContent)">Deliver to Jaffna?</div>
+        </div>
       </div>
     </div>
   </div>
@@ -235,16 +508,23 @@
       <textarea id="inp" rows="1" placeholder="Ask about gifts, delivery, or preferences…"></textarea>
       <button id="send" onclick="sendMsg()">➤</button>
     </div>
-    <div class="input-hint">Enter to send · Shift+Enter for new line</div>
+    <div class="input-hint">Tap send or press Enter · Shift+Enter for a new line</div>
   </div>
 </div>
 
-<a class="dev-link" href="/develop">⚙ Developer View</a>
+<a class="dev-link" id="dev-link" href="/develop">⚙ Developer View</a>
 
 <script>
   const msgsEl = document.getElementById('msgs');
+  const msgsInner = document.getElementById('msgsInner');
   const inp    = document.getElementById('inp');
   const sendEl = document.getElementById('send');
+
+  function setChatMode() {
+    if (!msgsInner) return;
+    msgsInner.classList.remove('is-landing');
+    msgsInner.classList.add('has-chat');
+  }
 
   inp.addEventListener('input', () => {
     inp.style.height = 'auto';
@@ -273,16 +553,17 @@
 
   function addMsg(role, text) {
     hideWelcome();
+    setChatMode();
     const row = document.createElement('div');
     row.className = `msg-row ${role}`;
     const isBot = role === 'bot';
     row.innerHTML = `
       <div class="avatar ${role}">${isBot ? '🎁' : '👤'}</div>
-      <div style="display:flex;flex-direction:column;${!isBot?'align-items:flex-end':''}">
+      <div class="msg-body">
         <div class="bubble ${role}">${isBot ? md(text) : esc(text)}</div>
         <div class="msg-time">${now()}</div>
       </div>`;
-    msgsEl.appendChild(row);
+    (msgsInner || msgsEl).appendChild(row);
     scrollBottom();
     return row;
   }
@@ -290,12 +571,15 @@
   let typingRow = null;
   function showTyping() {
     hideWelcome();
+    setChatMode();
     typingRow = document.createElement('div');
     typingRow.className = 'msg-row bot';
     typingRow.innerHTML = `
       <div class="avatar bot">🎁</div>
-      <div class="bubble bot typing"><div class="dots"><span></span><span></span><span></span></div></div>`;
-    msgsEl.appendChild(typingRow);
+      <div class="msg-body">
+        <div class="bubble bot typing"><div class="dots"><span></span><span></span><span></span></div></div>
+      </div>`;
+    (msgsInner || msgsEl).appendChild(typingRow);
     scrollBottom();
   }
   function removeTyping() { if (typingRow) { typingRow.remove(); typingRow = null; } }
@@ -327,6 +611,19 @@
     } finally {
       sendEl.disabled = false;
       inp.focus();
+    }
+  }
+
+  /* ── Hidden Dev Mode ── */
+  let triggerCount = 0;
+  function devClick() {
+    triggerCount++;
+    if (triggerCount >= 5) {
+      document.getElementById('dev-link').style.display = 'block';
+      document.getElementById('dev-link').style.opacity = '1';
+      document.getElementById('dev-link').style.color = 'var(--teal)';
+      alert("Developer View unlocked! (See bottom right)");
+      triggerCount = 0;
     }
   }
 </script>
