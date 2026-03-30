@@ -101,13 +101,14 @@ class AgentOrchestrator:
 
         t0 = time.time()
 
-        # ── Step 1: Recall memory context (ST history + LT profiles) ──────────
-        memory_context = self._recall_memory(user_message)
-        profiles       = self.memory.long_term.get_profiles()
+        # ── Step 1: Recall memory (ST history + scoped LT profiles only) ───────
+        mem_ctx = self.memory.recaller(user_message)
+        memory_context = self._format_memory_context(mem_ctx)
+        active_profiles = mem_ctx.get("active_profiles") or []
         _fire("memory", {
-            "found":    len(profiles) > 0,
-            "count":    len(profiles),
-            "profiles": profiles,
+            "found":    len(active_profiles) > 0,
+            "count":    len(active_profiles),
+            "profiles": active_profiles,
         })
 
         # ── Step 2: Route the query ───────────────────────────────────────────
@@ -134,21 +135,21 @@ class AgentOrchestrator:
         violated = False
         final_answer = draft
 
-        if profiles:
-            _fire("reflecting", {"profile_count": len(profiles)})
-            violation, reason = self._reflect(draft=draft, profiles=profiles)
+        if active_profiles:
+            _fire("reflecting", {"profile_count": len(active_profiles)})
+            violation, reason = self._reflect(draft=draft, profiles=active_profiles)
             _fire("reflect_result", {"violated": violation, "reason": reason})
 
             if violation:
                 logger.warning("[Orchestrator] Violation found: '{}'. Revising draft.", reason)
-                final_answer = self._revise(draft=draft, reason=reason, profiles=profiles)
+                final_answer = self._revise(draft=draft, reason=reason, profiles=active_profiles)
                 violated = True
                 _fire("revised", {"reason": reason})
                 logger.success("[Orchestrator] Draft revised after reflection.")
             else:
                 logger.info("[Orchestrator] Reflection: draft is safe — no revision needed.")
         else:
-            logger.debug("[Orchestrator] No profiles in LT memory — skipping reflection.")
+            logger.debug("[Orchestrator] No active recipient profiles for this turn — skipping reflection.")
 
         # ── Step 7: Save turn to memory ───────────────────────────────────────
         self.memory.saving_memory(question=user_message, answer=final_answer)
@@ -169,19 +170,20 @@ class AgentOrchestrator:
 
     # ── internal steps ────────────────────────────────────────────────────────
 
-    def _recall_memory(self, user_message: str) -> str:
+    def _format_memory_context(self, ctx: dict) -> str:
         """
-        Fetch ST chat history + LT profiles and format as a context string.
-
-        Returns an empty string if memory is unavailable (non-fatal).
+        Build the MEMORY CONTEXT string for the router + synthesiser.
+        Uses only active_profiles (recipient-scoped), not every stored profile.
         """
         try:
-            ctx = self.memory.recaller(user_message)
             lines = []
-
-            if ctx.get("all_profiles"):
-                lines.append("RECIPIENT PROFILES:")
-                for entry in ctx["all_profiles"]:
+            profiles = ctx.get("active_profiles") or []
+            if profiles:
+                lines.append(
+                    "RECIPIENT PROFILES (only for people the user is clearly shopping for "
+                    "in this exchange — if empty elsewhere, the user may be buying for themselves):"
+                )
+                for entry in profiles:
                     lines.append(f"  {entry}")
 
             if ctx.get("chat_history"):
@@ -191,7 +193,7 @@ class AgentOrchestrator:
 
             return "\n".join(lines)
         except Exception as exc:
-            logger.warning("[Orchestrator] Memory recall failed: {}", exc)
+            logger.warning("[Orchestrator] Memory context format failed: {}", exc)
             return ""
 
     def _dispatch(self, decision: RouteDecision) -> str:
@@ -239,6 +241,9 @@ class AgentOrchestrator:
         system_msg = (
             "You are the Kapruka Gift-Concierge. "
             "Answer the user's question using the TOOL OUTPUT and MEMORY CONTEXT provided. "
+            "Recipient profiles appear only when the user is shopping for those people. "
+            "If there are no recipient profiles but the user said the item is for themselves "
+            "(e.g. for me), address them directly — do not invent another recipient (sister, wife, etc.). "
             "Be helpful, concise, and natural. "
             "If tool output is empty, answer from memory or general knowledge."
         )

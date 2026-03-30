@@ -1,4 +1,5 @@
 from memory.lt_store import LongTermMemory
+from memory.recipient_scope import resolve_active_profiles
 from memory.St_store import ShortTermMemory
 from loguru import logger
 from typing import Any
@@ -52,11 +53,13 @@ class MemoryDistiller:
 
         chat_history = self.short_term.get_history()
         all_profiles = self.long_term.get_profiles()
+        active = resolve_active_profiles(question, chat_history, all_profiles)
 
         return {
-            "chat_history": chat_history,
-            "all_profiles": all_profiles,
-            "question":     question,
+            "chat_history":    chat_history,
+            "all_profiles":    all_profiles,
+            "active_profiles": active,
+            "question":        question,
         }
 
     # ------------------------------------------------------------------

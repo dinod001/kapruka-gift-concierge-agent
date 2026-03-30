@@ -192,6 +192,7 @@ def test_memory_distiller():
     # 4d. recaller returns correct keys
     assert "chat_history" in ctx
     assert "all_profiles" in ctx
+    assert "active_profiles" in ctx
     assert "question" in ctx
     logger.success(f"  {PASS}  recaller: returned context keys")
 
