@@ -19,6 +19,8 @@ import sys
 import json
 import queue
 import threading
+import uuid
+from loguru import logger
 
 # ── Paths & Vercel Compatibility ───────────────────────────────────────────
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -69,28 +71,59 @@ from agents.orchestrator import AgentOrchestrator
 # ── Flask ──────────────────────────────────────────────────────────────────────
 app = Flask(
     __name__,
-    template_folder=os.path.join(PROJECT_ROOT, "templates"),
-    static_folder=os.path.join(PROJECT_ROOT, "static"),
 )
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "kapruka-secret-12345")
 
-# ── Initialise agent once at startup ──────────────────────────────────────────
+# ── Initialise global shared components ONCE ──────────────────────────────────
 llm_chat      = get_chat_llm(temperature=0.3)
 llm_router    = get_router_llm(temperature=0)
 llm_extractor = get_extractor_llm(temperature=0)
 
 embedder      = get_default_embeddings()
 
-memory        = MemoryDistiller(llm=llm_extractor, profile_path=profile_path)
+# Global tool/config instances (stateless or file-based)
 logistic_tool = LogisticAlert(llm=llm_extractor)
 rag_tool      = RAGTool(embedder=embedder, llm=llm_chat)
 
-agent = AgentOrchestrator(
-    llm_chat=llm_chat,
-    llm_router=llm_router,
-    memory=memory,
-    logistic_tool=logistic_tool,
-    rag_tool=rag_tool,
-)
+# In-memory session store (Key: user_id, Value: chat_history list)
+# Note: In Vercel, this is ephemeral and reset on process recycle.
+_SESSION_STORE = {}
+_SESSION_LOCK  = threading.Lock()
+
+def get_session_id():
+    """Retrieve or create a unique user_id from cookies."""
+    # If not in request (e.g. background thread), this might fail or need to be passed
+    uid = request.cookies.get("user_id")
+    if not uid:
+        uid = str(uuid.uuid4())
+    return uid
+
+def get_agent_for_session(uid: str):
+    """
+    Construct a fresh MemoryDistiller and AgentOrchestrator for a specific user ID.
+    """
+    # 1. Create a fresh memory coordinator
+    mem = MemoryDistiller(llm=llm_extractor, profile_path=profile_path)
+    
+    # 2. Load history from global store
+    with _SESSION_LOCK:
+        history = _SESSION_STORE.get(uid, [])
+    
+    mem.load_chat_history(history)
+    
+    # 3. Create orchestrator with this localized memory
+    return AgentOrchestrator(
+        llm_chat=llm_chat,
+        llm_router=llm_router,
+        memory=mem,
+        logistic_tool=logistic_tool,
+        rag_tool=rag_tool,
+    )
+
+def save_session_history(uid: str, agent_instance):
+    """Save the updated history from the agent's memory back to the global store."""
+    with _SESSION_LOCK:
+        _SESSION_STORE[uid] = agent_instance.memory.get_chat_history()
 
 _SENTINEL = object()          # marks end of queue stream
 
@@ -121,11 +154,16 @@ def _build_on_step(q: queue.Queue):
         elif name == "route":
             route = payload.get("route", "direct")
             conf  = payload.get("confidence", 0)
+            query = (payload.get("params") or {}).get("query")
+            msg   = f"🔀 Route → {route.upper()} ({int(conf * 100)}%)"
+            if query and route == "rag":
+                msg += f"\n🔍 Search: '{query[:40]}...'"
+            
             q.put(_sse({
                 "step":       "route",
                 "route":      route,
                 "confidence": conf,
-                "msg":        f"🔀 Route → {route.upper()} ({int(conf * 100)}%)",
+                "msg":        msg,
             }))
 
         elif name == "draft":
@@ -180,13 +218,21 @@ def chat():
     if not message:
         return jsonify({"error": "empty message"}), 400
 
-    q = queue.Queue()
+    uid = get_session_id()
+    q   = queue.Queue()
 
     def run_agent():
-        """Run orchestrator in a background thread, putting SSE frames in queue."""
+        """Run orchestrator in a background thread, updates global session store."""
         try:
-            on_step  = _build_on_step(q)
-            response = agent.chat(message, on_step=on_step)
+            # Create a localized agent for this user/session
+            agent_inst = get_agent_for_session(uid)
+            on_step    = _build_on_step(q)
+
+            response = agent_inst.chat(message, on_step=on_step)
+
+            # Save the updated history for the NEXT turn
+            save_session_history(uid, agent_inst)
+
             # Final "done" event carries the answer
             q.put(_sse({
                 "step":     "done",
@@ -196,6 +242,7 @@ def chat():
                 "latency":  response.latency_ms,
             }))
         except Exception as exc:
+            logger.exception("[App] run_agent failed")
             q.put(_sse({"step": "error", "msg": str(exc)}))
         finally:
             q.put(_SENTINEL)
@@ -210,7 +257,7 @@ def chat():
                 break
             yield item
 
-    return Response(
+    resp = Response(
         stream_with_context(event_stream()),
         mimetype="text/event-stream",
         headers={
@@ -218,27 +265,37 @@ def chat():
             "X-Accel-Buffering": "no",
         },
     )
+    resp.set_cookie("user_id", uid, max_age=60*60*24*30) # 30 days
+    return resp
 
 
 @app.post("/api/chat")
 def api_chat():
     """
     Simple blocking JSON endpoint for the production UI.
-    No SSE — waits for the full response then returns JSON.
     """
     body    = request.get_json(force=True)
     message = (body.get("message") or "").strip()
     if not message:
         return jsonify({"error": "empty message"}), 400
+
+    uid = get_session_id()
     try:
-        response = agent.chat(message)
-        return jsonify({
+        agent_inst = get_agent_for_session(uid)
+        response   = agent_inst.chat(message)
+        
+        save_session_history(uid, agent_inst)
+
+        resp = jsonify({
             "answer":   response.answer,
             "route":    response.route,
             "violated": response.violated,
             "latency":  response.latency_ms,
         })
+        resp.set_cookie("user_id", uid, max_age=60*60*24*30)
+        return resp
     except Exception as exc:
+        logger.exception("[App] api_chat failed")
         return jsonify({"error": str(exc)}), 500
 
 

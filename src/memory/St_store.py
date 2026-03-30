@@ -56,6 +56,20 @@ class ShortTermMemory:
         """
         return list(self._buffer)
 
+    def set_history(self, history: list[dict[str, str]]) -> None:
+        """
+        Replace the entire buffer with a new history list.
+        Useful for session-based management.
+
+        Parameters
+        ----------
+        history : list[dict]
+            A list of conversation turns to load.
+        """
+        self._buffer = list(history)
+        self._trim()
+        logger.debug(f"[ShortTermMemory] Restored {len(self._buffer)} turn(s) from session.")
+
     def get_context_string(self) -> str:
         """
         Return the history as a plain multi-line string suitable for

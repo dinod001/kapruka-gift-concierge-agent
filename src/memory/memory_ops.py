@@ -70,6 +70,10 @@ class MemoryDistiller:
         """Return all turns currently in the short-term buffer."""
         return self.short_term.get_history()
 
+    def load_chat_history(self, history: list[dict[str, str]]) -> None:
+        """Overwrite the short-term buffer with provided history."""
+        self.short_term.set_history(history)
+
     def clear_session(self) -> None:
         """Wipe the short-term buffer (call at session end)."""
         self.short_term.clear()

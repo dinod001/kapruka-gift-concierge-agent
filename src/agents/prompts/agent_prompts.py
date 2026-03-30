@@ -62,9 +62,18 @@ OUTPUT FORMAT (strict JSON):
   "reasoning": "<one-line explanation>",
   "params": {{
     "district": "<if logistic, the district mentioned>",
-    "query": "<the refined search query for rag>"
+    "query": "<refined search query for rag - MUST REWRITE TO BE STANDALONE>"
   }}
 }}
+
+QUERY REWRITING RULES (CRITICAL):
+1. If the user uses pronouns like "it", "they", "that one", "the first one", LOOK at the MEMORY CONTEXT.
+2. Resolve these pronouns into the specific product or topic mentioned previously.
+3. The "query" field MUST be a standalone, descriptive search query.
+   - Poor query: "cinnamon"
+   - Good query: "ingredients of Java Strawberry Vanilla Love Cake cinnamon"
+   - Contextual query: "Does Java Strawberry Vanilla Love Cake contain cinnamon?"
+4. If the user is asking a follow-up about a previously recommended item, include that item's name in the query.
 """
 
 
