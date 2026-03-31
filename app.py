@@ -85,6 +85,9 @@ embedder      = get_default_embeddings()
 logistic_tool = LogisticAlert(llm=llm_extractor)
 rag_tool      = RAGTool(embedder=embedder, llm=llm_chat)
 
+# Initialize memory for global management routes (get/clear profiles)
+memory = MemoryDistiller(llm=llm_extractor, profile_path=profile_path)
+
 # In-memory session store (Key: user_id, Value: chat_history list)
 # Note: In Vercel, this is ephemeral and reset on process recycle.
 _SESSION_STORE = {}

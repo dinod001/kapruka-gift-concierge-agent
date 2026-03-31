@@ -100,6 +100,7 @@ class RAGTool:
         top_k: int = TOP_K_RESULTS,
         threshold: float = SIMILARITY_THRESHOLD,
         use_cache: bool = True,
+        memory_context: str = "",
     ) -> str:
         """
         Retrieve + generate an answer from the internal KB.
@@ -108,7 +109,11 @@ class RAGTool:
         """
         if self._cag_service is not None:
             try:
-                result = self._cag_service.generate(query, use_cache=use_cache)
+                result = self._cag_service.generate(
+                    query, 
+                    use_cache=use_cache,
+                    memory_context=memory_context
+                )
                 return result.get("answer", "") or "No relevant information found in the internal knowledge base."
             except Exception as exc:
                 logger.error("CAG+CRAG pipeline failed: {}", exc)

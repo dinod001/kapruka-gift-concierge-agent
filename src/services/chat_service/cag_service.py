@@ -22,6 +22,7 @@ class CAGService:
         self,
         query: str,
         use_cache: bool = True,
+        memory_context: str = "",
     ) -> Dict[str, Any]:
         """
         Generate answer with CAG + CRAG pipeline.
@@ -47,7 +48,11 @@ class CAGService:
                 }
 
         # Cache miss -- run CRAG (self-correcting retrieval)
-        crag_result = self.crag_service.generate(query, verbose=False)
+        crag_result = self.crag_service.generate(
+            query, 
+            verbose=False,
+            memory_context=memory_context
+        )
 
         answer = crag_result.get("answer", "")
         product_url = crag_result.get("product_url", [])

@@ -221,7 +221,8 @@ class AgentOrchestrator:
             if not query:
                 return "No search query could be extracted."
             logger.info("[Orchestrator] → RAGTool: '{}'", query[:80])
-            return self.rag_tool.search(query)
+            # Pass memory_context to help the RAG LLM understand history/intent
+            return self.rag_tool.search(query=query)
 
         # direct — no tool needed; synthesiser answers from memory alone
         return ""
@@ -240,12 +241,17 @@ class AgentOrchestrator:
         """
         system_msg = (
             "You are the Kapruka Gift-Concierge. "
-            "Answer the user's question using the TOOL OUTPUT and MEMORY CONTEXT provided. "
-            "Recipient profiles appear only when the user is shopping for those people. "
-            "If there are no recipient profiles but the user said the item is for themselves "
-            "(e.g. for me), address them directly — do not invent another recipient (sister, wife, etc.). "
+            "Answer the user's question using the information found in our CATALOG (Tool Output) and the CONTEXT provided. "
+            "\n\n**STRICT GROUNDING RULES**:\n"
+            "1. Use ONLY the product names, prices, and links providing in the CATALOG.\n"
+            "2. NEVER mix a link from one product with the name of another.\n"
+            "3. If multiple products are mentioned, refer to them clearly.\n"
+            "4. If a product was previously mentioned in conversation but is NOT in the current CATALOG results, "
+            "do NOT guess its link — only discuss items with active links in the CATALOG.\n"
+            "5. NEVER mention technical terms like 'TOOL OUTPUT', 'RAG', or 'CONTEXT' to the user. "
+            "Instead, say 'based on our catalog' or 'as we discussed'.\n\n"
             "Be helpful, concise, and natural. "
-            "If tool output is empty, answer from memory or general knowledge."
+            "If the catalog search is empty, answer from general knowledge but be honest about not having specific product matches."
         )
 
         context_block = f"\nMEMORY CONTEXT:\n{memory_context}\n" if memory_context else ""

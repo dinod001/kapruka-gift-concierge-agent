@@ -90,7 +90,8 @@ class CRAGService:
         self,
         query: str,
         confidence_threshold: float = CRAG_CONFIDENCE_THRESHOLD,
-        verbose: bool = True
+        verbose: bool = True,
+        memory_context: str = "",
     ) -> Dict[str, Any]:
         """
         Generate answer with CRAG (Corrective RAG).
@@ -172,7 +173,13 @@ class CRAGService:
         # the retrieved chunk_text (doc.page_content) so the LLM can copy
         # Product/Price/Link verbatim from CONTEXT.
         context_text = "\n\n".join(doc.page_content for doc in final_docs)
-        prompt_input = {"context": context_text, "question": query}
+        
+        # Combine memory context (history) with RAG evidence for better grounding
+        full_context = context_text
+        if memory_context:
+            full_context = f"--- RECENT CONVERSATION ---\n{memory_context}\n\n--- PRODUCT EVIDENCE ---\n{context_text}"
+            
+        prompt_input = {"context": full_context, "question": query}
         answer = (self.prompt | self.llm | StrOutputParser()).invoke(prompt_input)
         
         elapsed = time.time() - start
