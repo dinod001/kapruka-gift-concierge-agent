@@ -120,7 +120,7 @@ class AgentOrchestrator:
         })
 
         # ── Step 3: Dispatch to the right tool ───────────────────────────────
-        tool_output = self._dispatch(decision)
+        tool_output = self._dispatch(decision, memory_context)
 
         # ── Step 4: Synthesise initial draft ─────────────────────────────────
         _fire("draft", {"route": decision.route})
@@ -196,7 +196,7 @@ class AgentOrchestrator:
             logger.warning("[Orchestrator] Memory context format failed: {}", exc)
             return ""
 
-    def _dispatch(self, decision: RouteDecision) -> str:
+    def _dispatch(self, decision: RouteDecision, memory_context: str = "") -> str:
         """
         Dispatch the query to the appropriate specialist tool.
 
@@ -220,9 +220,16 @@ class AgentOrchestrator:
             query = params.get("query", "")
             if not query:
                 return "No search query could be extracted."
-            logger.info("[Orchestrator] → RAGTool: '{}'", query[:80])
-            # Pass memory_context to help the RAG LLM understand history/intent
-            return self.rag_tool.search(query=query)
+            
+            exclude = params.get("out_of_stock_item")
+            logger.info("[Orchestrator] → RAGTool: '{}' (exclude: {})", query[:80], exclude)
+            
+            # Pass memory_context and exclude_product to help the RAG pipeline
+            return self.rag_tool.search(
+                query=query, 
+                memory_context=memory_context,
+                exclude_product=exclude
+            )
 
         # direct — no tool needed; synthesiser answers from memory alone
         return ""
@@ -242,13 +249,12 @@ class AgentOrchestrator:
         system_msg = (
             "You are the Kapruka Gift-Concierge. "
             "Answer the user's question using the information found in our CATALOG (Tool Output) and the CONTEXT provided. "
-            "\n\n**STRICT GROUNDING RULES**:\n"
-            "1. Use ONLY the product names, prices, and links providing in the CATALOG.\n"
-            "2. NEVER mix a link from one product with the name of another.\n"
-            "3. If multiple products are mentioned, refer to them clearly.\n"
-            "4. If a product was previously mentioned in conversation but is NOT in the current CATALOG results, "
+            "3. If multiple products are mentioned in the CATALOG, you MUST refer to the Top Recommendation and also mention at least one alternative from the 'Other Options' section to provide variety.\n"
+            "4. NEVER claim a product is the 'only one available' or 'at this moment' unless the CATALOG (Tool Output) truly contains only one unique product.\n"
+            "5. **STRICT EXCLUSION**: If the conversation history or parameters mention an 'out_of_stock_item' (e.g., from a previous turn), you are FORBIDDEN from recommending it. Do NOT suggest it as a fallback.\n"
+            "6. If a product was previously mentioned in conversation but is NOT in the current CATALOG results, "
             "do NOT guess its link — only discuss items with active links in the CATALOG.\n"
-            "5. NEVER mention technical terms like 'TOOL OUTPUT', 'RAG', or 'CONTEXT' to the user. "
+            "7. NEVER mention technical terms like 'TOOL OUTPUT', 'RAG', or 'CONTEXT' to the user. "
             "Instead, say 'based on our catalog' or 'as we discussed'.\n\n"
             "Be helpful, concise, and natural. "
             "If the catalog search is empty, answer from general knowledge but be honest about not having specific product matches."

@@ -19,7 +19,7 @@ Benefits:
 """
 
 from loguru import logger
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import time
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -92,6 +92,7 @@ class CRAGService:
         confidence_threshold: float = CRAG_CONFIDENCE_THRESHOLD,
         verbose: bool = True,
         memory_context: str = "",
+        exclude_product: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Generate answer with CRAG (Corrective RAG).
@@ -123,11 +124,15 @@ class CRAGService:
             logger.info(f"🔍 Query: {query}")
             logger.success(f"🎯 Confidence threshold: {confidence_threshold}\n")
         
-        # Step 1: Initial retrieval
-        if verbose:
-            logger.info(f"1️⃣  Initial retrieval (k={self.initial_k})...")
+        # --- Step 1: Initial retrieval ---
+        # If we have an exclusion, use a larger initial K to find alternatives
+        effective_initial_k = self.initial_k
+        if exclude_product:
+            effective_initial_k = max(self.initial_k, 15)
+            if verbose:
+                logger.info(f"🔍 Exclusion detected: '{exclude_product}'. Using deep search (k={effective_initial_k})...")
         
-        self._set_k(self.initial_k)
+        self._set_k(effective_initial_k)
         docs_initial = self.retriever.invoke(query)
         confidence_initial = calculate_confidence(docs_initial, query)
         
@@ -146,21 +151,67 @@ class CRAGService:
                 logger.warning(f"   ⚠️  Low confidence - applying corrective retrieval...\n")
             
             # Step 3: Corrective retrieval
+            # If we have an exclusion, push expansion even further
+            effective_expanded_k = self.expanded_k
+            if exclude_product:
+                effective_expanded_k = max(self.expanded_k, 20)
+
             if verbose:
-                logger.info(f"2️⃣  Corrective retrieval (k={self.expanded_k}, expanded)...")
+                logger.info(f"2️⃣  Corrective retrieval (k={effective_expanded_k}, expanded)...")
             
-            # Expand k for more diverse results
-            self._set_k(self.expanded_k)
+            self._set_k(effective_expanded_k)
             docs_corrected = self.retriever.invoke(query)
             confidence_final = calculate_confidence(docs_corrected, query)
             
             if verbose:
                 logger.info(f"   📊 Corrected confidence: {confidence_final:.2f}")
                 improvement = (confidence_final - confidence_initial) * 100
-                logger.info(f"   📈 Confidence improved by {improvement:.1f}%")
+                if verbose:
+                    logger.info(f"   📈 Confidence improved by {improvement:.1f}%")
             
             final_docs = docs_corrected
             correction_applied = True
+        
+        # --- NEW Filtering step: Remove excluded product (Negative constraint) ---
+        if exclude_product:
+            original_count = len(final_docs)
+            excl_lower = exclude_product.lower().strip()
+            # Filter matches by checking product_name in metadata (bi-directional)
+            # This handles cases like 'Nubia Neo 3' vs 'Nubia Neo 3 5G 8GB Shadow Black'
+            # Also check page_content for robustness
+            final_docs = [
+                doc for doc in final_docs 
+                if (
+                    (doc.metadata.get("product_name", "").lower() not in excl_lower) and 
+                    (excl_lower not in doc.metadata.get("product_name", "").lower()) and
+                    (excl_lower not in doc.page_content.lower())
+                )
+            ]
+            if verbose:
+                removed = original_count - len(final_docs)
+                logger.success(f"🚫 Negative Filter: Removed {removed} chunks matching '{exclude_product}'")
+        # -------------------------------------------------------------------------
+        
+        # --- Diversity Step: Ensure unique products are represented ---
+        # Group docs by product_name and keep only the best 2 chunks per product
+        # to prevent one product from swallowing the full Top-K context.
+        unique_products = {}
+        for doc in final_docs:
+            p_name = doc.metadata.get("product_name", "Unknown")
+            if p_name not in unique_products:
+                unique_products[p_name] = []
+            
+            # Limit to 2 most relevant chunks per product
+            if len(unique_products[p_name]) < 2:
+                unique_products[p_name].append(doc)
+        
+        # Re-flatten back into a list of docs (preserving relevance order across different products)
+        diverse_docs = []
+        for p_name in unique_products:
+            diverse_docs.extend(unique_products[p_name])
+            
+        final_docs = diverse_docs
+        # -------------------------------------------------------------
         
         # Step 4: Generate answer
         if verbose:
@@ -169,11 +220,18 @@ class CRAGService:
         start = time.time()
         
         # Format docs and generate:
-        # The prompt expects a STRING context. We provide a string built from
-        # the retrieved chunk_text (doc.page_content) so the LLM can copy
-        # Product/Price/Link verbatim from CONTEXT.
         context_text = "\n\n".join(doc.page_content for doc in final_docs)
         
+        # --- NEW: Empty Context Guard (Anti-Hallucination) ---
+        # If filtering removed everything, explicitly tell the LLM NOT to recommend the excluded product.
+        if not context_text.strip() and exclude_product:
+            context_text = (
+                f"TECHNICAL NOTE: The user specifically asked for an alternative to '{exclude_product}'. "
+                f"However, NO OTHER DIFFERENT PRODUCTS were found in the catalog search for their category. "
+                f"STRICT RULE: Do NOT suggest '{exclude_product}' or any of its variations. "
+                "Inform the user that we currently don't have other matching options available."
+            )
+
         # Combine memory context (history) with RAG evidence for better grounding
         full_context = context_text
         if memory_context:

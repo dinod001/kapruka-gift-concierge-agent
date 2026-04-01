@@ -101,6 +101,7 @@ class RAGTool:
         threshold: float = SIMILARITY_THRESHOLD,
         use_cache: bool = True,
         memory_context: str = "",
+        exclude_product: Optional[str] = None,
     ) -> str:
         """
         Retrieve + generate an answer from the internal KB.
@@ -112,7 +113,8 @@ class RAGTool:
                 result = self._cag_service.generate(
                     query, 
                     use_cache=use_cache,
-                    memory_context=memory_context
+                    memory_context=memory_context,
+                    exclude_product=exclude_product
                 )
                 return result.get("answer", "") or "No relevant information found in the internal knowledge base."
             except Exception as exc:

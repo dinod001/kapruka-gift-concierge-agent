@@ -186,7 +186,7 @@ CHUNKING_STRATEGY = _get_nested(_PARAMS, "chunking", "strategy", default="custom
 # Retrieval Configuration
 # ========================================
 
-TOP_K_RESULTS = _get_nested(_PARAMS, "retrieval", "top_k", default=4)
+TOP_K_RESULTS = _get_nested(_PARAMS, "retrieval", "top_k", default=8)
 SIMILARITY_THRESHOLD = _get_nested(_PARAMS, "retrieval", "similarity_threshold", default=0.7)
 
 # ========================================
@@ -203,7 +203,7 @@ CAG_CACHE_MAX_SIZE = _get_nested(_PARAMS, "cag", "max_cache_size", default=1000)
 # ========================================
 
 CRAG_CONFIDENCE_THRESHOLD = _get_nested(_PARAMS, "crag", "confidence_threshold", default=0.6)
-CRAG_EXPANDED_K = _get_nested(_PARAMS, "crag", "expanded_k", default=8)
+CRAG_EXPANDED_K = _get_nested(_PARAMS, "crag", "expanded_k", default=12)
 
 # ========================================
 # Crawling Configuration

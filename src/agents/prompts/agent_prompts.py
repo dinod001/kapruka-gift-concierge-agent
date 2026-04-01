@@ -72,11 +72,13 @@ OUTPUT FORMAT (strict JSON):
 QUERY REWRITING RULES (CRITICAL):
 1. **Pronoun Resolution**: If the user says "it", "that", "this one", "another", "instead", refer back to the MEMORY CONTEXT to find the specific product name being discussed. 
    - Example: User: "it's out of stock". Context: Recommended 'Vanilla Bean Eggless Cake'. 
-   - Query: "Alternative to Vanilla Bean Eggless Cake" | out_of_stock_item: "Vanilla Bean Eggless Cake".
+   - Decision: { "route": "rag", "params": { "query": "alternative to Vanilla Bean Eggless Cake", "out_of_stock_item": "Vanilla Bean Eggless Cake" } }
 2. **Contextual Search**: The "query" field MUST be a standalone search query that contains all necessary keywords from the conversation history.
    - Poor query: "chocolate"
    - Good query: "chocolate cake for sister eggless" (incorporates preferences from previous turns).
-3. **Out-of-Stock Logic**: If the user indicates a previously suggested item is unavailable, explicitly mention that item in the query as "alternative to [item name]" to help the RAG tool find a different result.
+3. **Alternative Search (CRITICAL)**: If the user asks for "another one", "different", or "instead", extract the previous item in `out_of_stock_item`. 
+   - **POISONING PREVENTION**: The `query` field MUST NOT contain the name of the `out_of_stock_item`. Use a general category search instead (e.g. "smartphones" or "cakes"). 
+   - **Example**: "suggest another phone instead of Nubia" -> query: "smartphones", out_of_stock_item: "Nubia Neo 3 5G".
 
 **RAG ROUTE EXAMPLES (Search/Discovery):**
 - "what about a phone" → route: "rag", query: "mobile phones"

@@ -1,5 +1,5 @@
 from loguru import logger
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from services.chat_service.cag_cache import CAGCache
 from services.chat_service.crag_service import CRAGService
@@ -23,6 +23,7 @@ class CAGService:
         query: str,
         use_cache: bool = True,
         memory_context: str = "",
+        exclude_product: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Generate answer with CAG + CRAG pipeline.
@@ -51,7 +52,8 @@ class CAGService:
         crag_result = self.crag_service.generate(
             query, 
             verbose=False,
-            memory_context=memory_context
+            memory_context=memory_context,
+            exclude_product=exclude_product
         )
 
         answer = crag_result.get("answer", "")
