@@ -186,7 +186,7 @@ CHUNKING_STRATEGY = _get_nested(_PARAMS, "chunking", "strategy", default="custom
 # Retrieval Configuration
 # ========================================
 
-TOP_K_RESULTS = _get_nested(_PARAMS, "retrieval", "top_k", default=8)
+TOP_K_RESULTS = _get_nested(_PARAMS, "retrieval", "top_k", default=4)
 SIMILARITY_THRESHOLD = _get_nested(_PARAMS, "retrieval", "similarity_threshold", default=0.7)
 
 # ========================================
